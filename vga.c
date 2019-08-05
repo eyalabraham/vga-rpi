@@ -107,11 +107,16 @@ int main (int argc, char* argv[])
                  */
                 else if ( command_q->queue == UART_Q_SYSTEM )
                 {
-                    if ( command_q->cmd_param.uint8_param_t.cmd == 255 )
+                    if ( command_q->cmd_param.uint8_param_t.cmd == UART_CMD_ECHO )
                     {
                         debug(DB_INFO, "echo reply\n");
                         echo_reply();
                     }
+                }
+                else if ( command_q->queue == UART_Q_ABRT )
+                {
+                    debug(DB_ERR, "aborting test.\n");
+                    while(1);
                 }
             }
 
@@ -125,7 +130,7 @@ int main (int argc, char* argv[])
         debug(DB_ERR, "%s: frame buffer and/or GPIO initialization failed\n", __FUNCTION__);
     }
 
-    /* Shutdown; probably never get to this point
+    /* Shutdown; probably never get to this point unless in test/debug mode
      */
     uart_rts_not_active();  // this signals a not ready state to the PCXT
     fb_close();

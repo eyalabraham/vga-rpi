@@ -13,10 +13,26 @@
 
 #include    <stdint.h>
 
-#define     UART_Q_VGA      0
-#define     UART_Q_OTHER1   1
-#define     UART_Q_OTHER2   2
-#define     UART_Q_SYSTEM   3
+#define     UART_Q_VGA          0
+#define     UART_Q_OTHER1       1
+#define     UART_Q_OTHER2       2
+#define     UART_Q_SYSTEM       3
+#define     UART_Q_ABRT       255   // special queue tag for test abort
+
+#define     UART_CMD_VID_MODE   0
+#define     UART_CMD_DSP_PAGE   1
+#define     UART_CMD_CUR_POS    2
+#define     UART_CMD_CUR_ENA    3
+#define     UART_CMD_PUT_CHRA   4
+#define     UART_CMD_GET_CHR    5
+#define     UART_CMD_PUT_CHR    6
+#define     UART_CMD_SCR_UP     7
+#define     UART_CMD_SCR_DOWN   8
+#define     UART_CMD_PUT_PIX    9
+#define     UART_CMD_GET_PIX    10
+#define     UART_CMD_PALETTE    11
+#define     UART_CMD_CLR_SCR    12
+#define     UART_CMD_ECHO       255
 
 #pragma pack(1)
 

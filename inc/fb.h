@@ -33,11 +33,11 @@
 
 // Monochrome attributes
 #define     FB_ATTR_USECURRECT  0xff    // use existing attribute in screen buffer
-#define     FB_ATTR_HIDE        0x00    // TODO: not displayed
-#define     FB_ATTR_UNDERLIN    0x01    // TODO: underline
+#define     FB_ATTR_HIDE        0x00    // not displayed
+#define     FB_ATTR_UNDERLIN    0x01    // underline
 #define     FB_ATTR_NORMAL      0x07    // Normal
-#define     FB_ATTR_HIGHINTUL   0x09    // TODO: high intensity underline
-#define     FB_ATTR_HIGHINT     0x0f    // TODO: high intensity
+#define     FB_ATTR_HIGHINTUL   0x09    // high intensity underline
+#define     FB_ATTR_HIGHINT     0x0f    // high intensity
 #define     FB_ATTR_INV         0x70    // inverse
 
 /********************************************************************

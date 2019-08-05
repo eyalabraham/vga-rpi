@@ -8,6 +8,7 @@
  *
  *******************************************************************/
 
+#include    <stdio.h>
 #include    <string.h>
 #include    <unistd.h>
 #include    <fcntl.h>
@@ -19,7 +20,7 @@
 #include    "uart.h"
 #include    "util.h"
 
-#define     UART_CMD_Q_LEN       10
+#define     UART_CMD_Q_LEN      10
 
 #define     SLIP_END            0xC0        // start and end of every packet
 #define     SLIP_ESC            0xDB        // escape start (one byte escaped data follows)
@@ -125,6 +126,8 @@ void uart_close(void)
  */
 cmd_q_t* uart_get_cmd(void)
 {
+#if UART_TEST_CMD == 0
+
     cmd_q_t* command;
 
     if ( cmd_count )
@@ -139,6 +142,34 @@ cmd_q_t* uart_get_cmd(void)
     }
 
     return 0;
+
+#else
+
+    /********************************************************************
+     *     Read test commands from stdin
+     */
+
+    static cmd_q_t  command;
+
+    command.queue = 0;
+
+    scanf("%d %d %d %d %d %d %d", &(command.cmd_param.data_bytes[0]),
+                                  &(command.cmd_param.data_bytes[1]),
+                                  &(command.cmd_param.data_bytes[2]),
+                                  &(command.cmd_param.data_bytes[3]),
+                                  &(command.cmd_param.data_bytes[4]),
+                                  &(command.cmd_param.data_bytes[5]),
+                                  &(command.cmd_param.data_bytes[6]));
+
+    // use the ECHO command to signal test abort/end
+    if ( command.cmd_param.uint8_param_t.cmd == UART_CMD_ECHO )
+        command.queue = UART_Q_ABRT;
+
+    return &(command);
+
+    /********************************************************************/
+
+#endif
 }
 
 /********************************************************************

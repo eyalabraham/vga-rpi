@@ -24,9 +24,6 @@ The RPi will connect through Serial GPIO to a Z80-SIO/2 UART to interface with t
 | 36    |   16   | CTS1      | ALT5 / 3 |  RTSB p.24 |
 | 11    |   17   | RTS1      | ALT5 / 3 |  CTSB p.23 |
 
-**RPi UART**
-On RPi Zero W the mini-UART is mapped to GPIO14..17. The mini-UART is not considered a reliable communication path because it is clocked by a variable CPU clock. Application may need to remap the PL011 UART to these GPIO lines.
-
 ## Software
 The RPi software works in conjunction with the PC/XT BIOS code (https://github.com/eyalabraham/new-xt-bios)
 The main component in the RPi software is the Frame Buffer. Two options to use the frame buffer, one from Linux and the other on bare-metal RPi with no OS.
@@ -43,9 +40,9 @@ RPi OS installation is tuned to eliminate IO to SD card so that power on/off wil
  | 1    | 40x25      | 16 color   | text       |  8    | CGA  |   yes    |
  | 2    | 80x25      | 16 gray    | text       |  4    | CGA  |   no     |
  | 3    | 80x25      | 16 color   | text       |  4    | CGA  |   yes    |
- | 4    | 320x200    | 4 color    | graphics   |  8    | CGA  |   no     |
- | 5    | 320x200    | 4 color    | graphics   |  8    | CGA  |   no     |
- | 6    | 640x200    | Monochrome | graphics   |  8    | CGA  |   no     |
+ | 4    | 320x200    | 4 color    | graphics   |  1    | CGA  |   no     |
+ | 5    | 320x200    | 4 color    | graphics   |  1    | CGA  |   no     |
+ | 6    | 640x200    | Monochrome | graphics   |  1    | CGA  |   no     |
  | 7    | 80x25      | Monochrome | text       |  1    | MDA  |   yes    |
  | 8    | 720x350    | Monochrome | graphics   |  1    | HERC |   no     |
  | 9    | 1280x1024  | Monochrome | text (1)   |  1    | VGA  |   no?    |
@@ -64,14 +61,15 @@ The control packets include:
 | Set display page  | 1      | Page                | 0               | 0             | 0         | 0          | 0          |
 | Cursor position   | 2      | Page                | 0               | col=0..79(39) | row=0..24 | 0          | 0          |
 | Cursor enable     | 3      | on=1 / off=0        | 0               | 0             | 0         | 0          | 0          |
-| Put character (1) | 4      | Page                | char code       | col=0..79(39) | row=0..24 |            | Attrib.(2) |
+| Put character (1) | 4      | Page                | char code       | col=0..79(39) | row=0..24 | 0          | Attrib.(2) |
 | Get character (6) | 5      | Page                | 0               | col=0..79(39) | row=0..24 | 0          | 0          |
 | Put character (7) | 6      | Page                | char code       | col=0..79(39) | row=0..24 | 0          | 0          |
 | Scroll up (4)     | 7      | Rows                | T.L col         | T.L row       | B.R col   | B.R row    | Attrib.(2) |
 | Scroll down (4)   | 8      | Rows                | T.L col         | T.L row       | B.R col   | B.R row    | Attrib.(2) |
 | Put pixel         | 9      | Page                | Pixel color (3) |       16-bit column       |       16-bit row        |
 | Get pixel (8)     | 10     | Page                | 0               |       16-bit column       |       16-bit row        |
-| Clear screen      | 11     | Page                | 0               | 0             | 0         | 0          | Attrib.(2) |
+| Set palette       | 11     | palette/color       | palette ID      | 0             | 0         | 0          | 0          |
+| Clear screen      | 12     | Page                | 0               | 0             | 0         | 0          | Attrib.(2) |
 | Echo (9)          | 255    | 1                   | 2               | 3             | 4         | 5          | 6          |
 
 (1) Character is written to cursor position
@@ -107,96 +105,23 @@ Command #11 can be used with scroll commands if the text screen needs to be clea
 | INT 10,13     | Write string (BIOS after 1/10/86)          | #4,#2     |
 
 **TODO**
-BIOS:
-1. cursor off before scroll and then back on
-5. enable mon88 keyboard echo to go to VGA
 
-1. call fb_init() with some default initial emulation
-   - display some splash screen and wait for mode command from BIOS.
-   - BIOS will have to initialize the 8255 and wait for the RPi to boot
-
-2. BIOS senses card is ready through Z80-SIO CTSB line, then sends an INT 10h,0 with card mode based in motherboard [DIP switches 5 and 6](http://www.minuszerodegrees.net/5160/misc/5160_motherboard_switch_settings.htm)
-
-| Switches 5 and 6                                  |
-|---------------------------------------------------|
-| 5=OFF, 6=OFF:  MDA (monochrome)                   |
-| 5=OFF, 6=ON :  CGA, at 40 column by 25 line mode  |
-| 5=ON , 6=OFF:  CGA, at 80 column by 25 line mode  |
-| 5=ON , 6=ON :  Cards with a BIOS expansion ROM    |
-   
-3. new function fb_emul() enter with the mode set by BIOS
-   - actual function parameters are the INT 10h parameters: function code + register values
-   - if card not set, or emulation mode changed from current one, then set/reset emulation mode
-     this way if BIOS is rebooted without power cycle the emulation can be reset or reinitialized if DIP switches are changed or if INT 10h, 0 is received
-   - fb_emul() runs and exits; it needs to be written to support periodic calling from within a loop:
-      read GPIO, call fb_emul(), call uarl_handler(), other task, ... repeat.
-   - within fb_emul() a sub-function per INT 10h function
-
-4. maintain a circular buffer for incoming UART data, poll the buffer and send data to PC if any while asserting the RPi IRQ output GPIO.
-
-5. no way to use interrupts under Linux. for GPIO interrupt response we'll need bare-metal setup
-   - figure out a way to poll the GPIO PPI and manage IO through it, maybe multi-threading to spawn a thread that handles PPI input.
-   - the PPI input thread will constantly poll the PPI ^OBF line and accept bytes into a circular buffer with the bytes queue ID
-   - ppi_get() function will read the input queue:
-    * queue ID 0 are commends for the VGA card and the next 0 ID bytes will be packed into a 
-
-6. pseudo code:
-
-    ppi_init();     // initialize GPIO lines and pins
-    uart_init();    // 
-    fb_init();
-    
-    while ( 1 )
-    {
-        ppi_command_q = ppi_get();
-        
-        if ( ppi_command_q )
-        {
-            if ( ppi_command_q->queue == PPI_Q_UART )
-            {
-                uart_send(<data>);
-            }
-            else ( ppi_command_q->queue == PPI_Q_VGA )
-            {
-                fb_emul(<data>);
-            }
-            ( ppi_command_q->queue == PPI_Q_OTHER_IO )
-            {
-                ...
-            }
-            else
-            {
-                ...
-            }
-        }
-        
-        if ( uart_isdata() )
-        {
-            byte = uart_get();
-            uart_send(byte);
-        }
-    }
-
-7. PC/XT items
-    - update all relevant data in BIOS data area
-
-8. **RPi setup changes**
-    - setup access through USB OTG and disable (turn off) Wifi
-    - disable, turn off, blue tooth
-    - is it possible to reallocated the UART to GPIO pins 14 and 15 instead of the mini-UART?
-    - redirect boot messages to the mini-UART after it is moved/swapped with the UART
-    - get rid of the boot messages on frame buffer tty1 (see above)
-    - make FS read-only
-    - https://retropie.org.uk/forum/topic/14299/tutorial-remove-boot-text-on-the-raspberry-pi-for-noobs/2
-    - original cmdline:
-        dwc_otg.lpm_enable=0 console=tty1 root=PARTUUID=71aa8f65-02 rootfstype=ext4 elevator=deadline fsck.repair=yes rootwait
+**RPi setup changes**
+- Setup access through USB OTG and disable (turn off) Wifi
+- Disable, turn off, blue tooth
+- Reallocated the UART to GPIO pins 14 and 15 instead of the mini-UART?
+- Redirect boot messages to the mini-UART after it is moved/swapped with the UART?
+- Get rid of the boot messages on frame buffer tty1 (see above)
+- Make FS read-only
 
 **Files**
 - *vga.c* main module and emulator control loop
-- *ppi.c* parallel interface between RPi and PC 8255 PPI
 - *fb.c* frame buffer and graphics emulation
 - *uart.c* UART IO driver
-- *iv8x16u.h* font bitmap definition [bitmap font source](https://github.com/farsil/ibmfonts) for code page 437 characters
+- *iv8x16u.h* 8x16 font bitmap definition [bitmap font source](https://github.com/farsil/ibmfonts) for code page 437 characters
+- *ic8x8u.h*  8x8 font bitmap definition [bitmap font source](https://github.com/farsil/ibmfonts) for code page 437 characters
+- *im9x14u.h* 9x14 font bitmap definition [bitmap font source](https://github.com/farsil/ibmfonts) for code page 437 characters
+- *config.h* compile time module configuration
 - *util.c* utility and helper functions (debug print etc)
 
 **VGA emulation bare-metal**

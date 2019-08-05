@@ -48,14 +48,14 @@ vga: $(OBJS)
 # requires ssh key setup to avoid using password authentication
 #------------------------------------------------------------------------------------
 sync:
-	rsync -vrh /home/eyal/data/projects/pc-xt/vga-rpi/*  pi@192.168.1.16:/home/pi/vga
-	rsh pi@192.168.1.16 "cd /home/pi/vga && make"
-#	rsync -vrh /home/eyal/data/projects/pc-xt/vga-rpi/*  pi@192.168.1.13:/home/pi/Documents/vga-rpi
-#	rsh pi@192.168.1.13 "cd /home/pi/Documents/vga-rpi && make"
+	rsync -vrh /home/eyal/data/projects/pc-xt/vga-rpi/*  pi@10.0.0.16:/home/pi/vga
+	rsh pi@10.0.0.16 "cd /home/pi/vga && make"
+#	rsync -vrh /home/eyal/data/projects/pc-xt/vga-rpi/*  pi@10.0.0.13:/home/pi/Documents/vga-rpi
+#	rsh pi@10.0.0.13 "cd /home/pi/Documents/vga-rpi && make"
 
 rclean:
-	rsh pi@192.168.1.16 "cd /home/pi/vga && make clean"
-#	rsh pi@192.168.1.13 "cd /home/pi/Documents/vga-rpi && make clean"
+	rsh pi@10.0.0.16 "cd /home/pi/vga && make clean"
+#	rsh pi@10.0.0.13 "cd /home/pi/Documents/vga-rpi && make clean"
 
 #------------------------------------------------------------------------------------
 # cleanup

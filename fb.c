@@ -40,19 +40,21 @@
 #define     FONT_8X16           2
 #define     FONT_9X14           3
 
-#define     TEXT_PAGE_MIRROR    16000       // do not change! 80x25x8 uint16_t
+#define     TEXT_PAGE_MIRROR    10240       // do not change! max(160x64,40x25x8,80x25x4) uint16_t
 #define     FB_CUR_BLINK_INT    250000      // in uSec
 #define     FB_TRANSPARENT      255         // Special color definition
-#define     FB_COLOR_NO_CHANGE  255
+#define     FB_XOR_PIXEL        0x80        // Special pixel color XOR if but 7 is set
 
 #define     FB_COMMAND          (emul_command->uint8_param_t.cmd)
 #define     FB_PAGE             (emul_command->uint8_param_t.b1)
 #define     FB_MODE             (emul_command->uint8_param_t.b1)
 #define     FB_SCROLL_ROWS      (emul_command->uint8_param_t.b1)
 #define     FB_CUR_ON_OFF       (emul_command->uint8_param_t.b1)
+#define     FB_PALETTE          (emul_command->uint8_param_t.b1)
 #define     FB_CHARACTER        (emul_command->uint8_param_t.b2)
 #define     FB_PIX_COLOR        (emul_command->uint8_param_t.b2)
 #define     FB_TOP_LEFT_COL     (emul_command->uint8_param_t.b2)
+#define     FB_PALETTE_ID       (emul_command->uint8_param_t.b2)
 #define     FB_TOP_LEFT_ROW     (emul_command->uint8_param_t.b3)
 #define     FB_CUR_COLUMN       (emul_command->uint8_param_t.b3)
 #define     FB_CUR_ROW          (emul_command->uint8_param_t.b4)
@@ -86,6 +88,8 @@ static void fb_put_char(int, uint8_t, uint8_t, uint8_t, uint8_t);
 static void fb_scroll_fbuffer(uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t);
 static void fb_scroll_tbuffer(uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t);
 static void fb_get_char_and_attrib(uint8_t, uint8_t, uint8_t);
+static void fb_put_pixel(int, uint8_t, uint16_t, uint16_t);
+static void fb_get_pixel(int, uint16_t, uint16_t);
 
 /********************************************************************
  * Module globals (static)
@@ -99,6 +103,7 @@ static int page_size = 0;
 static int active_emulation = -1;
 static int active_page = -1;
 static uint8_t *fbp = 0;
+static int  palette = 0;
 
 static int font_w, font_h;
 static uint8_t* font_img;
@@ -156,10 +161,6 @@ int fb_init(int emulation)
     {
         debug(DB_ERR, "%s: emulation type %d not supported\n", __FUNCTION__, emulation);
         return -1;
-    }
-    else if ( graphics_mode[emulation].mode == MODE_GR )
-    {
-        cursor_flag_show = 0;
     }
 
     active_emulation = emulation;
@@ -278,7 +279,7 @@ int fb_init(int emulation)
 }
 
 /********************************************************************
- * fc_close()
+ * fb_close()
  *
  *  Close the RPi frame buffer device.
  *
@@ -320,7 +321,7 @@ void fb_emul(cmd_param_t* emul_command)
                       emul_command->uint8_param_t.b5, emul_command->uint8_param_t.b6);
 
     // Process emulation commands
-    if ( FB_COMMAND == 0 )
+    if ( FB_COMMAND == UART_CMD_VID_MODE )
     {
         /* Set video mode
          *
@@ -329,7 +330,7 @@ void fb_emul(cmd_param_t* emul_command)
         for (i = 0; i < graphics_mode[active_emulation].pages; i++)
             fb_clear_screen(i);
     }
-    else if ( FB_COMMAND == 1 )
+    else if ( FB_COMMAND == UART_CMD_DSP_PAGE )
     {
         /* Set display page
          *
@@ -344,13 +345,12 @@ void fb_emul(cmd_param_t* emul_command)
                 debug(DB_ERR, "%S: error changing display page\n", __FUNCTION__);
         }
     }
-    else if ( FB_COMMAND == 2 )
+    else if ( FB_COMMAND == UART_CMD_CUR_POS )
     {
         /* Cursor position
          *
          */
-        if ( FB_PAGE >= graphics_mode[active_emulation].pages ||
-             graphics_mode[active_emulation].mode != MODE_TX )
+        if ( FB_PAGE >= graphics_mode[active_emulation].pages )
             return;
 
         if ( FB_CUR_COLUMN < graphics_mode[active_emulation].cols )
@@ -359,80 +359,74 @@ void fb_emul(cmd_param_t* emul_command)
         if ( FB_CUR_ROW < graphics_mode[active_emulation].rows )
             cursor_row = FB_CUR_ROW;
     }
-    else if ( FB_COMMAND == 3 )
+    else if ( FB_COMMAND == UART_CMD_CUR_ENA )
     {
         /* Cursor on/off
          *
          */
-        if ( graphics_mode[active_emulation].mode == MODE_TX )
-            cursor_flag_show = FB_CUR_ON_OFF ? 1 : 0;
-        else
-            cursor_flag_show = 0;
+        cursor_flag_show = FB_CUR_ON_OFF ? 1 : 0;
     }
-    else if ( FB_COMMAND == 4 )
+    else if ( FB_COMMAND == UART_CMD_PUT_CHRA )
     {
         /* Put character on the display
          *
          */
-        fb_put_char(FB_PAGE, cursor_column, cursor_row, FB_CHARACTER, FB_CHAR_ATTRIB);
+        fb_put_char(FB_PAGE, FB_CUR_COLUMN, FB_CUR_ROW, FB_CHARACTER, FB_CHAR_ATTRIB);
     }
-    else if ( FB_COMMAND == 5 )
+    else if ( FB_COMMAND == UART_CMD_GET_CHR )
     {
         /* Get character and attribute at cursor position
          *
          */
         fb_get_char_and_attrib(FB_PAGE, FB_CUR_COLUMN, FB_CUR_ROW);
     }
-    else if ( FB_COMMAND == 6 )
+    else if ( FB_COMMAND == UART_CMD_PUT_CHR )
     {
         /* Put character on the display
          *
          */
-        fb_put_char(FB_PAGE, cursor_column, cursor_row, FB_CHARACTER, FB_ATTR_USECURRECT);
+        fb_put_char(FB_PAGE, FB_CUR_COLUMN, FB_CUR_ROW, FB_CHARACTER, FB_ATTR_USECURRECT);
     }
-    else if ( FB_COMMAND == 7 )
+    else if ( FB_COMMAND == UART_CMD_SCR_UP )
     {
         /* Scroll up
          *
          */
         fb_cursor_on_off(0);
-
         fb_scroll_fbuffer(0, FB_TOP_LEFT_COL, FB_TOP_LEFT_ROW, FB_BOT_RIGHT_COL, FB_BOT_RIGHT_ROW, FB_SCROLL_ROWS, FB_CHAR_ATTRIB);
-
-        if ( graphics_mode[active_emulation].mode == MODE_TX )
-        {
-            fb_scroll_tbuffer(0, FB_TOP_LEFT_COL, FB_TOP_LEFT_ROW, FB_BOT_RIGHT_COL, FB_BOT_RIGHT_ROW, FB_SCROLL_ROWS, FB_CHAR_ATTRIB);
-        }
+        fb_scroll_tbuffer(0, FB_TOP_LEFT_COL, FB_TOP_LEFT_ROW, FB_BOT_RIGHT_COL, FB_BOT_RIGHT_ROW, FB_SCROLL_ROWS, FB_CHAR_ATTRIB);
     }
-    else if ( FB_COMMAND == 8 )
+    else if ( FB_COMMAND == UART_CMD_SCR_DOWN )
     {
         /* Scroll down
          *
          */
         fb_cursor_on_off(0);
-
         fb_scroll_fbuffer(1, FB_TOP_LEFT_COL, FB_TOP_LEFT_ROW, FB_BOT_RIGHT_COL, FB_BOT_RIGHT_ROW, FB_SCROLL_ROWS, FB_CHAR_ATTRIB);
-
-        if ( graphics_mode[active_emulation].mode == MODE_TX )
-        {
-            fb_scroll_tbuffer(1, FB_TOP_LEFT_COL, FB_TOP_LEFT_ROW, FB_BOT_RIGHT_COL, FB_BOT_RIGHT_ROW, FB_SCROLL_ROWS, FB_CHAR_ATTRIB);
-        }
+        fb_scroll_tbuffer(1, FB_TOP_LEFT_COL, FB_TOP_LEFT_ROW, FB_BOT_RIGHT_COL, FB_BOT_RIGHT_ROW, FB_SCROLL_ROWS, FB_CHAR_ATTRIB);
     }
-    else if ( FB_COMMAND == 9 )
+    else if ( FB_COMMAND == UART_CMD_PUT_PIX )
     {
-        /* TODO Put pixel
+        /* Put pixel
          *
          */
-        debug(DB_ERR, "%s: put pixel not supported\n", __FUNCTION__);
+        fb_put_pixel(FB_PAGE, FB_PIX_COLOR, FB_PIX_COL, FB_PIX_ROW);
     }
-    else if ( FB_COMMAND == 10 )
+    else if ( FB_COMMAND == UART_CMD_GET_PIX )
     {
-        /* TODO Get pixel
+        /* Get pixel
          *
          */
-        debug(DB_ERR, "%s: get pixel not supported\n", __FUNCTION__);
+        fb_get_pixel(FB_PAGE, FB_PIX_COL, FB_PIX_ROW);
     }
-    else if ( FB_COMMAND == 11 )
+    else if ( FB_COMMAND == UART_CMD_PALETTE )
+    {
+        /* Set color palette
+         *
+         */
+        palette = FB_PALETTE;       // TODO trust BIOS or range check?
+    }
+    else if ( FB_COMMAND == UART_CMD_CLR_SCR )
     {
         /* Clear screen
          *
@@ -460,8 +454,12 @@ void fb_cursor_blink()
 
     static uint8_t cursor_on = 0;
 
+    // initialization check
+    if ( active_emulation == -1 || active_page == -1 || page_size == 0 )
+        return;
+
     // handle cursor display and blinking
-    if ( cursor_flag_show == 0 || graphics_mode[active_emulation].mode != MODE_TX )
+    if ( cursor_flag_show == 0 || graphics_mode[active_emulation].mode == MODE_NO )
     {
         // Turn cursor off
         if ( cursor_on )
@@ -508,10 +506,6 @@ void fb_cursor_on_off(int cursor_state)
     int         page_offset;
     uint8_t     cur_attr, cur_char, fg_color, bg_color, tmp;
 
-    // initialization check
-    if ( active_emulation == -1 || active_page == -1 || page_size == 0 )
-        return;
-
     // retrieve character attribute at cursor position
     page_offset = active_page * graphics_mode[active_emulation].cols * graphics_mode[active_emulation].rows +
                   cursor_column_prev +
@@ -520,15 +514,45 @@ void fb_cursor_on_off(int cursor_state)
     cur_char = (uint8_t)(text_pages[page_offset] & 0x00ff);
     cur_attr = (uint8_t)((text_pages[page_offset] >> 8) & 0x00ff);
 
-    if ( active_emulation == 7 || active_emulation == 9 )
-    {
-        fg_color = VGE_DEF_MONO_FG_TXT;
-        bg_color = VGE_DEF_MONO_BG_TXT;
-    }
-    else
+    // color settings
+    if ( active_emulation >= 0 && active_emulation <= 3 )
     {
         fg_color = cur_attr & 0x0f;
         bg_color = (cur_attr >> 4) & 0x0f;
+    }
+    else if ( active_emulation >= 4 && active_emulation <= 6 )
+    {
+        fg_color = cur_attr;    // in color modes the attribute byte is the foreground color of the text
+        bg_color = FB_BLACK;    // TODO not sure black is the right background color choice here
+    }
+    else if ( active_emulation == 6 )
+    {
+        fg_color = ( cur_attr > 0 ) ? FB_WHITE : FB_BLACK;  // adjust for monochrome mode
+        bg_color = FB_TRANSPARENT;
+        cur_attr = FB_ATTR_USECURRECT;
+    }
+    else if ( active_emulation == 7 || active_emulation == 9 )
+    {
+        if ( cur_attr == FB_ATTR_HIDE )
+        {
+            fg_color = VGA_DEF_MONO_BG_TXT;
+            bg_color = VGA_DEF_MONO_BG_TXT;
+        }
+        else if ( cur_attr == FB_ATTR_UNDERLIN || cur_attr == FB_ATTR_NORMAL )
+        {
+            fg_color = VGA_DEF_MONO_FG_TXT;
+            bg_color = VGA_DEF_MONO_BG_TXT;
+        }
+        else if ( cur_attr == FB_ATTR_UNDERLIN || cur_attr == FB_ATTR_NORMAL )
+        {
+            fg_color = VGA_DEF_MONO_HFG_TXT;
+            bg_color = VGA_DEF_MONO_BG_TXT;
+        }
+    }
+    else
+    {
+        debug(DB_ERR, "%s: invalid page emulation %d\n", __FUNCTION__, active_emulation);
+        return;
     }
 
     // if cursor should be 'on' then swap foreground and background
@@ -560,23 +584,32 @@ void fb_clear_screen(int page)
 
     // range checks
     if ( page >= graphics_mode[active_emulation].pages )
-        return;
-
-    // clear page
-    memset(fbp + active_page * page_size, FB_BLACK, page_size);
-
-    if ( graphics_mode[active_emulation].mode ==  MODE_TX )
     {
-        text_page_size = graphics_mode[active_emulation].cols * graphics_mode[active_emulation].rows;
-        text_page_offset = page * text_page_size;
-        if ( active_emulation == 7 || active_emulation == 9 )
-            attr_char = ((uint16_t)FB_ATTR_NORMAL << 8) + 32;
-        else
-            attr_char = (((uint16_t)VGE_DEF_COLR_BG_TXT << 12) + ((uint16_t)VGE_DEF_COLR_FG_TXT << 8)) + 32;
-
-        for (i = 0; i < text_page_size; i++)
-            text_pages[text_page_offset + i] = attr_char;
+        debug(DB_ERR, "%s: invalid page number %d\n", __FUNCTION__, page);
+        return;
     }
+
+    // color settings
+    if ( active_emulation >= 0 && active_emulation <= 3 )
+        attr_char = (((uint16_t)VGA_DEF_COLR_BG_TXT << 12) + ((uint16_t)VGA_DEF_COLR_FG_TXT << 8)) + 32;
+    else if ( active_emulation >= 4 && active_emulation <= 6 )
+        attr_char = 32;
+    else if ( active_emulation == 7 || active_emulation == 9 )
+        attr_char = ((uint16_t)FB_ATTR_NORMAL << 8) + 32;
+    else
+    {
+        debug(DB_ERR, "%s: invalid page emulation %d\n", __FUNCTION__, active_emulation);
+        return;
+    }
+
+    // clear shadow text page graphics frame buffer
+    text_page_size = graphics_mode[active_emulation].cols * graphics_mode[active_emulation].rows;
+    text_page_offset = page * text_page_size;
+
+    for (i = 0; i < text_page_size; i++)
+        text_pages[text_page_offset + i] = attr_char;
+
+    memset(fbp + active_page * page_size, FB_BLACK, page_size);
 
     cursor_row = 0;
     cursor_column = 0;
@@ -644,7 +677,7 @@ void fb_clear_fbuffer_window(int page, uint8_t color, uint8_t tl_col, uint8_t tl
     // Simple range check
     cols = (int)(br_col - tl_col + 1);
     rows = (int)(br_row - tl_row + 1);
-    if ( cols <= 0 || rows <= 0 )
+    if ( cols <= 0 || rows <= 0 || active_page == -1 )
     {
         debug(DB_ERR, "%s: invalid frame buffer clear request\n", __FUNCTION__);
         return;
@@ -680,7 +713,7 @@ void fb_clear_tbuffer_window(int page, uint8_t tl_col, uint8_t tl_row, uint8_t b
     // Simple range check
     cols = (int)(br_col - tl_col + 1);
     rows = (int)(br_row - tl_row + 1);
-    if ( cols <= 0 || rows <= 0 )
+    if ( cols <= 0 || rows <= 0 || active_page == -1 )
     {
         debug(DB_ERR, "%s: invalid text buffer clear request\n", __FUNCTION__);
         return;
@@ -757,10 +790,10 @@ void fb_draw_char(int page, uint8_t x, uint8_t y, uint8_t c, uint8_t fg_color, u
     int         bit_pattern_index;
 
     // range checks
-    if ( fg_color > FB_WHITE || fg_color < FB_BLACK )
+    if ( fg_color > FB_WHITE )
         return;
 
-    if ( (bg_color > FB_WHITE || bg_color < FB_BLACK) && bg_color != FB_TRANSPARENT )
+    if ( bg_color > FB_WHITE && bg_color != FB_TRANSPARENT )
         return;
 
     if ( page >= graphics_mode[active_emulation].pages )
@@ -782,16 +815,11 @@ void fb_draw_char(int page, uint8_t x, uint8_t y, uint8_t c, uint8_t fg_color, u
             // underline mode
             if ( (row == font_h - 2) && (attribute == FB_ATTR_UNDERLIN || attribute == FB_ATTR_HIGHINTUL) )
                 bit_pattern = 0xff;
-
-            // high intensity
-            if ( attribute == FB_ATTR_HIGHINTUL || attribute == FB_ATTR_HIGHINT )
-                fg_color = VGE_DEF_MONO_HFG_TXT;
+            else if ( attribute == FB_ATTR_INV )
+                bit_pattern = ~bit_pattern;
         }
 
-        if ( attribute == FB_ATTR_INV )
-            bit_pattern = ~bit_pattern;
-
-        // NOTE: only cycles through 8 pixel bits even for 9-pix font width
+        // TODO NOTE: only cycles through 8 pixel bits even for 9-pix font width
         for ( col = 0; col < 8; col++ )
         {
             // calculate pixel position
@@ -837,11 +865,14 @@ void fb_put_char(int page, uint8_t x, uint8_t y, uint8_t c, uint8_t attribute)
 
     if ( page < graphics_mode[active_emulation].pages )
     {
+        page_offset = page * graphics_mode[active_emulation].cols * graphics_mode[active_emulation].rows +
+                      x + (y * graphics_mode[active_emulation].cols);
+
+        /* In all text modes adjust the foreground and background colors
+         * per selected attributes and text mode of color or monochrome
+         */
         if ( graphics_mode[active_emulation].mode == MODE_TX )
         {
-            page_offset = page * graphics_mode[active_emulation].cols * graphics_mode[active_emulation].rows +
-                          x + (y * graphics_mode[active_emulation].cols);
-
             if ( attribute == FB_ATTR_USECURRECT )
                 cur_attr = (uint8_t)(text_pages[page_offset] >> 8);
             else
@@ -849,26 +880,47 @@ void fb_put_char(int page, uint8_t x, uint8_t y, uint8_t c, uint8_t attribute)
 
             attr_char = ((uint16_t)cur_attr << 8) + c;
 
+            // Monochrome text attributes
             if ( active_emulation == 7 || active_emulation == 9 )
             {
-                fg_color = VGE_DEF_MONO_FG_TXT;
-                bg_color = VGE_DEF_MONO_BG_TXT;
+                if ( cur_attr == FB_ATTR_HIGHINTUL || cur_attr == FB_ATTR_HIGHINT)
+                    fg_color = VGA_DEF_MONO_HFG_TXT;
+                else if ( cur_attr == FB_ATTR_HIDE )
+                    fg_color = VGA_DEF_MONO_BG_TXT;
+                else
+                    fg_color = VGA_DEF_MONO_FG_TXT;
+
+                bg_color = VGA_DEF_MONO_BG_TXT;
             }
+            // Color text attributes
             else
             {
                 fg_color = (cur_attr & 0x0f);
                 bg_color = ((cur_attr >> 4) & 0x0f);
             }
-
-            text_pages[page_offset] = attr_char;
         }
+
+        /* In graphics modes (4, 5, and 6) only save the character code in the shadow text page
+         * and draw the character with a transparent background over the graphics page
+         * using the color provided in the attribute byte
+         */
         else
         {
+            attr_char = ((uint16_t)attribute << 8) + c;
+            fg_color = attribute;
+            if ( active_emulation == 6 )
+                fg_color = ( fg_color > 0 ) ? FB_WHITE : FB_BLACK;  // adjust for monochrome mode
             bg_color = FB_TRANSPARENT;
             cur_attr = FB_ATTR_USECURRECT;
         }
 
+        text_pages[page_offset] = attr_char;
         fb_draw_char(page, x, y, c, fg_color, bg_color, cur_attr);
+    }
+    else
+    {
+        debug(DB_ERR, "%s: invalid page number %d\n", __FUNCTION__, page);
+        return;
     }
 }
 
@@ -894,25 +946,28 @@ void fb_scroll_fbuffer(uint8_t dir, uint8_t tl_col, uint8_t tl_row, uint8_t br_c
     // Simple range check
     cols = (int)(br_col - tl_col + 1);
     rows = (int)(br_row - tl_row + 1);
-    if ( cols <= 0 || rows <= 0 )
+    if ( cols <= 0 || rows <= 0 || active_page == -1 )
     {
         debug(DB_ERR, "%s: invalid frame buffer scroll request\n", __FUNCTION__);
         return;
     }
 
     // Extract the fill color of the cleared rows from the attribute
-    if ( active_emulation == 7 || active_emulation == 9 )
+    if ( active_emulation >= 0 && active_emulation <= 3 )
     {
-        // In a monochrome text mode use the background of normal or inverse video
-        if ( (attrib & FB_ATTR_INV) )
-            fill_color = VGE_DEF_MONO_FG_TXT;
-        else
-            fill_color = VGE_DEF_MONO_BG_TXT;
-    }
-    else
-    {
-        // In a color text or graphic mode use the background color
         fill_color = ((attrib >> 4) & 0x0f);
+    }
+    else if ( active_emulation >= 4 && active_emulation <= 6 )
+    {
+        fill_color = attrib;
+    }
+    else if ( active_emulation == 7 || active_emulation == 9 )
+    {
+        // In a monochrome text mode use the background of normal, high intensity or inverse video
+        if ( attrib == FB_ATTR_INV)
+            fill_color = VGA_DEF_MONO_FG_TXT;
+        else
+            fill_color = VGA_DEF_MONO_BG_TXT;
     }
 
     if ( count >= (br_row - tl_row + 1) || count == 0 )
@@ -990,12 +1045,13 @@ void fb_scroll_tbuffer(uint8_t dir, uint8_t tl_col, uint8_t tl_row, uint8_t br_c
     // Simple range check
     cols = (int)(br_col - tl_col + 1);
     rows = (int)(br_row - tl_row + 1);
-    if ( cols <= 0 || rows <= 0 )
+    if ( cols <= 0 || rows <= 0 || active_page == -1 )
     {
         debug(DB_ERR, "%s: invalid text buffer scroll request\n", __FUNCTION__);
         return;
     }
 
+    // scroll up down or clear the screen
     if ( count >= (br_row - tl_row + 1) || count == 0 )
     {
         // Simply clear the window with 'fill_color'
@@ -1055,7 +1111,6 @@ void fb_scroll_tbuffer(uint8_t dir, uint8_t tl_col, uint8_t tl_row, uint8_t br_c
  *
  *  Retrieve and send character and attribute of
  *  character at specified position.
- *  TODO response in graphics modes
  *
  * param:  page number
  *         column and row of cursor position
@@ -1067,12 +1122,11 @@ void fb_get_char_and_attrib(uint8_t page, uint8_t column, uint8_t row)
     int         page_offset;
     uint8_t     character, attribute;
 
-    if ( graphics_mode[active_emulation].mode != MODE_TX ||
-         page >= graphics_mode[active_emulation].pages ||
+    if ( page >= graphics_mode[active_emulation].pages ||
          column >= graphics_mode[active_emulation].cols ||
          row >= graphics_mode[active_emulation].rows )
     {
-        debug(DB_ERR, "%s: invalid mode, or page, or cursor position\n", __FUNCTION__);
+        debug(DB_ERR, "%s: invalid page, or cursor position\n", __FUNCTION__);
         character = 0;
         attribute = 0;
     }
@@ -1089,4 +1143,90 @@ void fb_get_char_and_attrib(uint8_t page, uint8_t column, uint8_t row)
 
     uart_send(attribute);
     uart_send(character);
+}
+
+/*------------------------------------------------
+ * fb_put_pixel()
+ *
+ *  Put a pixel on a graphics-mode screen
+ *
+ * param:  page number, pixel color, x and y coordinates
+ * return: none
+ *
+ */
+void fb_put_pixel(int page, uint8_t color, uint16_t x, uint16_t y)
+{
+    uint8_t     c, pixel_color;
+    int         do_color_xor, pixel_offset;
+
+    if (  graphics_mode[active_emulation].mode != MODE_GR )
+    {
+        debug(DB_ERR, "%s: invalid mode\n", __FUNCTION__);
+        return;
+    }
+
+    do_color_xor = color & FB_XOR_PIXEL;    // check if XOR required
+    c = color & ~FB_XOR_PIXEL;              // isolate color
+
+    if ( c != FB_BLACK )
+    {
+        if ( active_emulation == 4 || active_emulation == 5 )
+        {
+            c = ((c << 1) + palette) & 0x07;
+        }
+        else if ( active_emulation == 6 )
+        {
+            c = (c != 0) ? FB_WHITE : FB_BLACK;
+        }
+    }
+
+    if ( do_color_xor )
+    {
+        // calculate the pixel's byte offset inside the buffer
+        pixel_offset = x + y * var_info.xres;
+        pixel_offset += page * page_size;
+
+        // Get the pixel's color value and use it to XOR with new color
+        pixel_color = *((uint8_t*)(fbp + pixel_offset));
+        c ^= pixel_color;
+    }
+
+    fb_draw_pixel(page, x, y, c);
+}
+
+/*------------------------------------------------
+ * fb_get_pixel()
+ *
+ *  Get a pixel's color value from a graphics-mode screen
+ *
+ * param:  page number, x and y coordinates
+ * return: send color value through UART
+ *
+ */
+void fb_get_pixel(int page, uint16_t x, uint16_t y)
+{
+    int     pixel_offset;
+    uint8_t color = 0;
+
+    // range checks
+    if ( page >= graphics_mode[active_emulation].pages ||
+         x > (graphics_mode[active_emulation].cols * font_w) ||
+         y > (graphics_mode[active_emulation].rows * font_h) )
+    {
+        debug(DB_ERR, "%s: invalid mode, or page, or pixel position\n", __FUNCTION__);
+        color = 0;
+    }
+    else
+    {
+        // calculate the pixel's byte offset inside the buffer
+        pixel_offset = x + y * var_info.xres;
+
+        // offset by the current buffer start
+        pixel_offset += page * page_size;
+
+        // Get the pixel's color value
+        color = *((uint8_t*)(fbp + pixel_offset));
+    }
+
+    uart_send(color);
 }
