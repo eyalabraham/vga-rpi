@@ -30,7 +30,8 @@ The main component in the RPi software is the Frame Buffer. Two options to use t
 
 **Executing emulation code under Linux**
 Main resource (http://raspberrycompote.blogspot.com/). This module is written to run under a strip-down RPi Linux distribution. The goal is to create a headless driver that is as OS independent as possible so that porting to bare-meta will be as direct as possible.
-RPi OS installation is tuned to eliminate IO to SD card so that power on/off will not depend on or affect SD card data storage/caching. Possible setup will use [TinyCore](http://tinycorelinux.net/welcome.html) or [Make the root partition read only](https://hallard.me/raspberry-pi-read-only/)
+RPi OS installation is tuned to eliminate IO to SD card so that power on/off will not depend on or affect SD card data storage/caching. Possible setup will use [TinyCore](http://tinycorelinux.net/welcome.html) or [Make the root partition read only](https://hallard.me/raspberry-pi-read-only/).
+This [Ada Fruit read only setup](https://learn.adafruit.com/read-only-raspberry-pi) seemed best because the read-only mode is select-able with a jumper on the GPIO lines.
 
 **Emulated graphics cards and modes**
 

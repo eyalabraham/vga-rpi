@@ -459,7 +459,9 @@ void fb_cursor_blink()
         return;
 
     // handle cursor display and blinking
-    if ( cursor_flag_show == 0 || graphics_mode[active_emulation].mode == MODE_NO )
+    if ( cursor_flag_show == 0 ||
+         graphics_mode[active_emulation].mode == MODE_NO ||
+         graphics_mode[active_emulation].mode == MODE_GR )
     {
         // Turn cursor off
         if ( cursor_on )

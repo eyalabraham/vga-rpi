@@ -74,6 +74,14 @@ int main (int argc, char* argv[])
         }
     }
 
+    /* when starting the emulation from /etc/rc.local
+     * the screen reverts back to text mode to display the remaining boot messages.
+     * In order to prevent this, a short delay here before changing the screen to graphics mode
+     */
+    sleep(2);
+
+    /* Start emulation loop
+     */
     if ( fb_init(VGA_DEF_MODE) == 0 && uart_init() == 0 )
     {
         uart_flush();

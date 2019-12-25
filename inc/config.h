@@ -11,6 +11,7 @@
 #ifndef __config_h__
 #define __config_h__
 
+#include    <termios.h>
 #include    <bcm2835.h>
 
 #include    "fb.h"

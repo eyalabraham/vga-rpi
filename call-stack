@@ -1,0 +1,34 @@
+# Emulation call stack
+
+fb_init
+    +-------fb_set_tty
+
+fb_close
+    +-------fb_set_tty
+
+fb_cursor_blink
+    +-------fb_cursor_on_off
+                +-------fb_draw_char
+                            +-------fb_draw_pixel
+
+fb_emul
+    +-------fb_init
+    |           +-------fb_set_tty
+    +-------fb_clear_screen
+    +-------fb_put_char
+    |           +-------fb_draw_char
+    |                       +-------fb_draw_pixel
+    +-------fb_get_char_and_attrib
+    |           +-------uart_send
+    +-------fb_cursor_on_off
+    |           +-------fb_draw_char
+    |                       +-------fb_draw_pixel
+    +-------fb_scroll_fbuffer
+    |           +-------fb_clear_fbuffer_window
+    +-------fb_scroll_tbuffer
+    |           +-------fb_clear_tbuffer_window
+    +-------fb_put_pixel
+    |           +-------fb_draw_pixel
+    +-------fb_get_pixel
+                +-------uart_send
+
