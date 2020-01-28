@@ -46,7 +46,7 @@ This [Ada Fruit read only setup](https://learn.adafruit.com/read-only-raspberry-
  | 6    | 640x200    | Monochrome | graphics   |  1    | CGA  |   no     |
  | 7    | 80x25      | Monochrome | text       |  1    | MDA  |   yes    |
  | 8    | 720x350    | Monochrome | graphics   |  1    | HERC |   no     |
- | 9    | 1280x1024  | Monochrome | text (1)   |  1    | VGA  |   no?    |
+ | 9    | 1280x1024  | Monochrome | text (1)   |  1    | VGA  |   no     |
 
 (1) This is a special mode for mon88, text 160x64
 
@@ -61,7 +61,7 @@ The control packets include:
 | Set video mode    | 0      | Mode=0..8 see above | 0               | 0             | 0         | 0          | 0          |
 | Set display page  | 1      | Page                | 0               | 0             | 0         | 0          | 0          |
 | Cursor position   | 2      | Page                | 0               | col=0..79(39) | row=0..24 | 0          | 0          |
-| Cursor enable     | 3      | on=1 / off=0        | 0               | 0             | 0         | 0          | 0          |
+| Cursor size/mode  | 3 (11) | Top scan line       | Bottom scan line| 0             | 0         | 0          | 0          |
 | Put character (1) | 4      | Page                | char code       | col=0..79(39) | row=0..24 | 0          | Attrib.(2) |
 | Get character (6) | 5      | Page                | 0               | col=0..79(39) | row=0..24 | 0          | 0          |
 | Put character (7) | 6      | Page                | char code       | col=0..79(39) | row=0..24 | 0          | 0          |
@@ -83,6 +83,7 @@ The control packets include:
 (8) Return data format: one byte {color_code}
 (9) Return data format: six bytes {6}{5}{4}{3}{2}{1}
 (10) Two high order bits are command queue: '00' VGA emulation, '01' tbd, '10' tbd, '11' system
+(11) A value of 2000h turns cursor off.
 
 **INT 10h mapping to display control commands**
 Functions not listed below will be handled by BIOS, and not transferred to the display controller.
@@ -93,6 +94,7 @@ Command #11 can be used with scroll commands if the text screen needs to be clea
 | INT           | Function                                   | Command   |
 |---------------|--------------------------------------------|-----------|
 | INT 10,0      | Set video mode                             | #0        |
+| INT 10,1      | Set cursor type/size                       | #3        |
 | INT 10,2      | Set cursor position                        | #2        |
 | INT 10,5      | Select active display page                 | #1        |
 | INT 10,6      | Scroll active page up                      | #7        |
@@ -113,7 +115,6 @@ Command #11 can be used with scroll commands if the text screen needs to be clea
 - Reallocated the UART to GPIO pins 14 and 15 instead of the mini-UART?
 - Redirect boot messages to the mini-UART after it is moved/swapped with the UART?
 - Get rid of the boot messages on frame buffer tty1 (see above)
-- Make FS read-only
 
 **Files**
 - *vga.c* main module and emulator control loop

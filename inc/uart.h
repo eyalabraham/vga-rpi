@@ -22,7 +22,7 @@
 #define     UART_CMD_VID_MODE   0
 #define     UART_CMD_DSP_PAGE   1
 #define     UART_CMD_CUR_POS    2
-#define     UART_CMD_CUR_ENA    3
+#define     UART_CMD_CUR_MODE   3
 #define     UART_CMD_PUT_CHRA   4
 #define     UART_CMD_GET_CHR    5
 #define     UART_CMD_PUT_CHR    6

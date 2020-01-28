@@ -49,8 +49,9 @@
 #define     FB_PAGE             (emul_command->uint8_param_t.b1)
 #define     FB_MODE             (emul_command->uint8_param_t.b1)
 #define     FB_SCROLL_ROWS      (emul_command->uint8_param_t.b1)
-#define     FB_CUR_ON_OFF       (emul_command->uint8_param_t.b1)
+#define     FB_CUR_TOP_LINE     (emul_command->uint8_param_t.b1)
 #define     FB_PALETTE          (emul_command->uint8_param_t.b1)
+#define     FB_CUR_BOT_LINE     (emul_command->uint8_param_t.b2)
 #define     FB_CHARACTER        (emul_command->uint8_param_t.b2)
 #define     FB_PIX_COLOR        (emul_command->uint8_param_t.b2)
 #define     FB_TOP_LEFT_COL     (emul_command->uint8_param_t.b2)
@@ -83,7 +84,7 @@ static int  fb_set_tty(const int);
 static void fb_clear_fbuffer_window(int, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t);
 static void fb_clear_tbuffer_window(int, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t);
 static void fb_draw_pixel(int, uint16_t, uint16_t, uint8_t);
-static void fb_draw_char(int, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t);
+static void fb_draw_char(int, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, int);
 static void fb_put_char(int, uint8_t, uint8_t, uint8_t, uint8_t);
 static void fb_scroll_fbuffer(uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t);
 static void fb_scroll_tbuffer(uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t);
@@ -111,6 +112,9 @@ static uint8_t* font_img;
 static uint16_t text_pages[TEXT_PAGE_MIRROR];
 
 static int cursor_flag_show = 0;
+static int cursor_start_line = 0;
+static int cursor_end_line = 0;
+
 static int cursor_row = 0;
 static int cursor_column = 0;
 static int cursor_row_prev = 0;
@@ -359,12 +363,17 @@ void fb_emul(cmd_param_t* emul_command)
         if ( FB_CUR_ROW < graphics_mode[active_emulation].rows )
             cursor_row = FB_CUR_ROW;
     }
-    else if ( FB_COMMAND == UART_CMD_CUR_ENA )
+    else if ( FB_COMMAND == UART_CMD_CUR_MODE )
     {
-        /* Cursor on/off
+        /* Cursor size/mode from scan lines
          *
          */
-        cursor_flag_show = FB_CUR_ON_OFF ? 1 : 0;
+        cursor_start_line = FB_CUR_TOP_LINE;
+        cursor_end_line = FB_CUR_BOT_LINE;
+        if ( cursor_start_line == 0x20 && cursor_end_line == 0x00 )
+            cursor_flag_show = 0;
+        else
+            cursor_flag_show = 1;
     }
     else if ( FB_COMMAND == UART_CMD_PUT_CHRA )
     {
@@ -506,7 +515,7 @@ void fb_cursor_blink()
 void fb_cursor_on_off(int cursor_state)
 {
     int         page_offset;
-    uint8_t     cur_attr, cur_char, fg_color, bg_color, tmp;
+    uint8_t     cur_attr, cur_char, fg_color, bg_color;
 
     // retrieve character attribute at cursor position
     page_offset = active_page * graphics_mode[active_emulation].cols * graphics_mode[active_emulation].rows +
@@ -557,16 +566,8 @@ void fb_cursor_on_off(int cursor_state)
         return;
     }
 
-    // if cursor should be 'on' then swap foreground and background
-    if ( cursor_state != 0 )
-    {
-        tmp = fg_color;
-        fg_color = bg_color;
-        bg_color = tmp;
-    }
-
-    // redraw the character
-    fb_draw_char(active_page, cursor_column_prev, cursor_row_prev, cur_char, fg_color, bg_color, cur_attr);
+    // Redraw the character
+    fb_draw_char(active_page, cursor_column_prev, cursor_row_prev, cur_char, fg_color, bg_color, cur_attr, cursor_state);
 }
 
 /********************************************************************
@@ -781,15 +782,19 @@ void fb_draw_pixel(int page, uint16_t x, uint16_t y, uint8_t color)
  *         fg_color      foreground color of the character
  *         bg_color      background color of the character
  *         attribute     character attribute for monochrome modes
+ *         cursor_on     draw character with or without cursor
  * return: none
  *
  */
-void fb_draw_char(int page, uint8_t x, uint8_t y, uint8_t c, uint8_t fg_color, uint8_t bg_color, uint8_t attribute)
+void fb_draw_char(int page, uint8_t x, uint8_t y, uint8_t c,
+                  uint8_t fg_color, uint8_t bg_color, uint8_t attribute,
+                  int cursor_on)
 {
     uint8_t     pix_pos, bit_pattern;
     int         col, row;
     int         px, py;
     int         bit_pattern_index;
+    int         fg_color_tmp, bg_color_tmp;
 
     // range checks
     if ( fg_color > FB_WHITE )
@@ -821,6 +826,19 @@ void fb_draw_char(int page, uint8_t x, uint8_t y, uint8_t c, uint8_t fg_color, u
                 bit_pattern = ~bit_pattern;
         }
 
+        // Adjust foreground and background to render cursor
+        if ( cursor_on &&
+             row >= cursor_start_line && row <= cursor_end_line )
+        {
+            fg_color_tmp = bg_color;
+            bg_color_tmp = fg_color;
+        }
+        else
+        {
+            fg_color_tmp = fg_color;
+            bg_color_tmp = bg_color;
+        }
+
         // TODO NOTE: only cycles through 8 pixel bits even for 9-pix font width
         for ( col = 0; col < 8; col++ )
         {
@@ -830,12 +848,12 @@ void fb_draw_char(int page, uint8_t x, uint8_t y, uint8_t c, uint8_t fg_color, u
             // Bit is set in Font, print pixel(s) in text color
             if ( (bit_pattern & pix_pos) )
             {
-                fb_draw_pixel(page, px, py, fg_color);
+                fb_draw_pixel(page, px, py, fg_color_tmp);
             }
             // Bit is cleared in Font
             else
             {
-                fb_draw_pixel(page, px, py, bg_color);;
+                fb_draw_pixel(page, px, py, bg_color_tmp);
             }
 
             // move to the next pixel position
@@ -917,7 +935,7 @@ void fb_put_char(int page, uint8_t x, uint8_t y, uint8_t c, uint8_t attribute)
         }
 
         text_pages[page_offset] = attr_char;
-        fb_draw_char(page, x, y, c, fg_color, bg_color, cur_attr);
+        fb_draw_char(page, x, y, c, fg_color, bg_color, cur_attr, 0);
     }
     else
     {
