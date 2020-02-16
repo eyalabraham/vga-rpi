@@ -465,12 +465,19 @@ void fb_cursor_blink()
 
     // initialization check
     if ( active_emulation == -1 || active_page == -1 || page_size == 0 )
+    {
         return;
+    }
+
+    // No cursor in graphics modes
+    if ( graphics_mode[active_emulation].mode == MODE_NO ||
+         graphics_mode[active_emulation].mode == MODE_GR )
+    {
+        return;
+    }
 
     // handle cursor display and blinking
-    if ( cursor_flag_show == 0 ||
-         graphics_mode[active_emulation].mode == MODE_NO ||
-         graphics_mode[active_emulation].mode == MODE_GR )
+    if ( cursor_flag_show == 0 )
     {
         // Turn cursor off
         if ( cursor_on )
@@ -531,34 +538,25 @@ void fb_cursor_on_off(int cursor_state)
         fg_color = cur_attr & 0x0f;
         bg_color = (cur_attr >> 4) & 0x0f;
     }
+    // Ignore in graphics modes
     else if ( active_emulation >= 4 && active_emulation <= 6 )
     {
-        fg_color = cur_attr;    // in color modes the attribute byte is the foreground color of the text
-        bg_color = FB_BLACK;    // TODO not sure black is the right background color choice here
+        /* No cursor in graphics modes, so do nothing.
+         * This is here just for protection and as place holder.
+         *
+         */
     }
-    else if ( active_emulation == 6 )
-    {
-        fg_color = ( cur_attr > 0 ) ? FB_WHITE : FB_BLACK;  // adjust for monochrome mode
-        bg_color = FB_TRANSPARENT;
-        cur_attr = FB_ATTR_USECURRECT;
-    }
+    // Monochrome text modes
     else if ( active_emulation == 7 || active_emulation == 9 )
     {
-        if ( cur_attr == FB_ATTR_HIDE )
-        {
-            fg_color = VGA_DEF_MONO_BG_TXT;
-            bg_color = VGA_DEF_MONO_BG_TXT;
-        }
-        else if ( cur_attr == FB_ATTR_UNDERLIN || cur_attr == FB_ATTR_NORMAL )
-        {
-            fg_color = VGA_DEF_MONO_FG_TXT;
-            bg_color = VGA_DEF_MONO_BG_TXT;
-        }
-        else if ( cur_attr == FB_ATTR_UNDERLIN || cur_attr == FB_ATTR_NORMAL )
-        {
+        if ( cur_attr == FB_ATTR_HIGHINTUL || cur_attr == FB_ATTR_HIGHINT )
             fg_color = VGA_DEF_MONO_HFG_TXT;
-            bg_color = VGA_DEF_MONO_BG_TXT;
-        }
+        else if ( cur_attr == FB_ATTR_HIDE )
+            fg_color = VGA_DEF_MONO_BG_TXT;
+        else
+            fg_color = VGA_DEF_MONO_FG_TXT;
+
+        bg_color = VGA_DEF_MONO_BG_TXT;
     }
     else
     {
@@ -749,15 +747,15 @@ void fb_draw_pixel(int page, uint16_t x, uint16_t y, uint8_t color)
 {
     uint32_t    pix_offset;
 
+    // skip entire process of color is 'transparent'
+    if ( color == FB_TRANSPARENT )
+        return;
+
     // range checks
     if ( color > FB_WHITE || color < FB_BLACK )
         return;
 
     if ( page >= graphics_mode[active_emulation].pages )
-        return;
-
-    // skip entire process of color is 'transparent'
-    if ( color == FB_TRANSPARENT )
         return;
 
     // calculate the pixel's byte offset inside the buffer
@@ -794,7 +792,6 @@ void fb_draw_char(int page, uint8_t x, uint8_t y, uint8_t c,
     int         col, row;
     int         px, py;
     int         bit_pattern_index;
-    int         fg_color_tmp, bg_color_tmp;
 
     // range checks
     if ( fg_color > FB_WHITE )
@@ -830,13 +827,7 @@ void fb_draw_char(int page, uint8_t x, uint8_t y, uint8_t c,
         if ( cursor_on &&
              row >= cursor_start_line && row <= cursor_end_line )
         {
-            fg_color_tmp = bg_color;
-            bg_color_tmp = fg_color;
-        }
-        else
-        {
-            fg_color_tmp = fg_color;
-            bg_color_tmp = bg_color;
+            bit_pattern = ~bit_pattern;
         }
 
         // TODO NOTE: only cycles through 8 pixel bits even for 9-pix font width
@@ -848,12 +839,12 @@ void fb_draw_char(int page, uint8_t x, uint8_t y, uint8_t c,
             // Bit is set in Font, print pixel(s) in text color
             if ( (bit_pattern & pix_pos) )
             {
-                fb_draw_pixel(page, px, py, fg_color_tmp);
+                fb_draw_pixel(page, px, py, fg_color);
             }
             // Bit is cleared in Font
             else
             {
-                fb_draw_pixel(page, px, py, bg_color_tmp);
+                fb_draw_pixel(page, px, py, bg_color);
             }
 
             // move to the next pixel position
